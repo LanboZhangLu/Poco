@@ -328,7 +328,7 @@ class UIObjectProxy(object):
             PocoNoSuchNodeException: raised when the UI element does not exist
         """
 
-        focus = focus or self._focus or 'anchor'
+        focus = focus or self._focus or 'center'
         pos_in_percentage = self.get_position(focus)
         self.poco.pre_action('click', self, pos_in_percentage)
         ret = self.poco.click(pos_in_percentage)
@@ -360,7 +360,7 @@ class UIObjectProxy(object):
             PocoNoSuchNodeException: raised when the UI element does not exist
         """
 
-        focus = focus or self._focus or 'anchor'
+        focus = focus or self._focus or 'center'
         pos_in_percentage = self.get_position(focus)
         self.poco.pre_action('rclick', self, pos_in_percentage)
         ret = self.poco.rclick(pos_in_percentage)
@@ -392,7 +392,7 @@ class UIObjectProxy(object):
             PocoNoSuchNodeException: raised when the UI element does not exist
         """
 
-        focus = focus or self._focus or 'anchor'
+        focus = focus or self._focus or 'center'
         pos_in_percentage = self.get_position(focus)
         self.poco.pre_action('double_click', self, pos_in_percentage)
         ret = self.poco.double_click(pos_in_percentage)
@@ -422,7 +422,7 @@ class UIObjectProxy(object):
         except ValueError:
             raise ValueError('Argument `duration` should be <float>. Got {}'.format(repr(duration)))
 
-        pos_in_percentage = self.get_position(self._focus or 'anchor')
+        pos_in_percentage = self.get_position(self._focus or 'center')
         self.poco.pre_action('long_click', self, pos_in_percentage)
         ret = self.poco.long_click(pos_in_percentage, duration)
         self.poco.post_action('long_click', self, pos_in_percentage)
@@ -452,7 +452,7 @@ class UIObjectProxy(object):
         except ValueError:
             raise ValueError('Argument `duration` should be <float>. Got {}'.format(repr(duration)))
 
-        focus = focus or self._focus or 'anchor'
+        focus = focus or self._focus or 'center'
         dir_vec = self._direction_vector_of(direction)
         origin = self.get_position(focus)
         self.poco.pre_action('swipe', self, (origin, dir_vec))
@@ -588,7 +588,6 @@ class UIObjectProxy(object):
         Returns:
             :py:class:`UIObjectProxy <poco.proxy.UIObjectProxy>`: a new UI proxy object (copy)
         """
-
         ret = copy.copy(self)
         ret._focus = f
         return ret
@@ -607,8 +606,7 @@ class UIObjectProxy(object):
         Raises:
             TypeError: raised when unsupported focus type is specified
         """
-
-        focus = focus or self._focus or 'anchor'
+        focus = focus or self._focus or 'center'
         if focus == 'anchor':
             pos = list(map(float, self.attr('pos')))
         elif focus == 'center':
@@ -696,6 +694,8 @@ class UIObjectProxy(object):
             self.poco.sleep_for_polling_interval()
             if time.time() - start > timeout:
                 raise PocoTargetTimeout('disappearance', self)
+            # 强制重新获取节点状态，避免节点已经存在、又消失后，这里不会刷新节点信息导致exists()永远为True的bug
+            self.invalidate()
 
     @refresh_when(PocoTargetRemovedException)
     def attr(self, name):
@@ -862,15 +862,29 @@ class UIObjectProxy(object):
     def invalidate(self):
         """
         Clear the flag to indicate to re-query or re-select the UI element(s) from hierarchy.
+
+        alias is refresh()
+
+        Example:
+            >>> a = poco(text="settings")
+            >>> print(a.exists())
+            >>> a.refresh()
+            >>> print(a.exists())
         """
 
         self._evaluated = False
         self._nodes = None
 
+    # refresh is alias of invalidate
+    # use poco(xxx).refresh() to force the UI element(s) to re-query
+    refresh = invalidate
+
     def _do_query(self, multiple=True, refresh=False):
         if not self._evaluated or refresh:
             self._nodes = self.poco.agent.hierarchy.select(self.query, multiple)
             if len(self._nodes) == 0:
+                # 找不到节点时，将当前节点状态重置，强制下一次访问时重新查询一次节点信息
+                self.invalidate()
                 raise PocoNoSuchNodeException(self)
             self._evaluated = True
             self._query_multiple = multiple

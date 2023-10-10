@@ -11,7 +11,7 @@ import atexit
 
 from airtest.core.api import connect_device, device as current_device
 from airtest.core.android.ime import YosemiteIme
-from airtest.core.error import AdbShellError
+from airtest.core.error import AdbShellError, AirtestError
 
 from hrpc.client import RpcClient
 from hrpc.transport.http import HttpTransport
@@ -161,7 +161,12 @@ class AndroidUiautomationPoco(Poco):
             self.device_ip = self.device.get_ip_address()
 
         # save current top activity (@nullable)
-        current_top_activity_package = self.device.get_top_activity_name()
+        try:
+            current_top_activity_package = self.device.get_top_activity_name()
+        except AirtestError as e:
+            # 在一些极端情况下，可能获取不到top activity的信息
+            print(e)
+            current_top_activity_package = None
         if current_top_activity_package is not None:
             current_top_activity_package = current_top_activity_package.split('/')[0]
 
@@ -181,11 +186,6 @@ class AndroidUiautomationPoco(Poco):
             p1 = 10081
 
         # start
-        if self._is_running('com.github.uiautomator'):
-            warnings.warn('{} should not run together with "uiautomator". "uiautomator" will be killed.'
-                          .format(self.__class__.__name__))
-            self.adb_client.shell(['am', 'force-stop', 'com.github.uiautomator'])
-
         ready = self._start_instrument(p0, force_restart=force_restart)
         if not ready:
             # 之前启动失败就卸载重装，现在改为尝试kill进程或卸载uiautomator
@@ -210,7 +210,6 @@ class AndroidUiautomationPoco(Poco):
 
     def _install_service(self):
         updated = install(self.adb_client, os.path.join(this_dir, 'lib', 'pocoservice-debug.apk'))
-        install(self.adb_client, os.path.join(this_dir, 'lib', 'pocoservice-debug-androidTest.apk'), updated)
         return updated
 
     def _is_running(self, package_name):
@@ -251,7 +250,7 @@ class AndroidUiautomationPoco(Poco):
             self._instrument_proc = None
 
         ready = False
-        self.adb_client.shell(['am', 'force-stop', PocoServicePackage])
+        # self.adb_client.shell(['am', 'force-stop', PocoServicePackage])
 
         # 启动instrument之前，先把主类activity启动起来，不然instrumentation可能失败
         self.adb_client.shell('am start -n {}/.TestActivity'.format(PocoServicePackage))
@@ -259,7 +258,7 @@ class AndroidUiautomationPoco(Poco):
         instrumentation_cmd = [
                 'am', 'instrument', '-w', '-e', 'debug', 'false', '-e', 'class',
                 '{}.InstrumentedTestAsLauncher'.format(PocoServicePackage),
-                '{}.test/android.support.test.runner.AndroidJUnitRunner'.format(PocoServicePackage)]
+                '{}/androidx.test.runner.AndroidJUnitRunner'.format(PocoServicePackage)]
         self._instrument_proc = self.adb_client.start_shell(instrumentation_cmd)
 
         def cleanup_proc(proc):
